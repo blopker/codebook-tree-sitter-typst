@@ -5,7 +5,7 @@ version = "0.12.2"
 keywords = ["incremental", "parsing", "typst"]
 categories = ["parsing", "text-editors"]
 repository = "https://github.com/blopker/codebook-tree-sitter-typst"
-edition = "2018"
+edition = "2024"
 license = "MIT"
 authors = ["Codebook Contributors"]
 

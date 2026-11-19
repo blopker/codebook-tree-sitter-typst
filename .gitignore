@@ -526,3 +526,8 @@ src/parser.c
 src/tree_sitter/
 
 size.txt
+
+# Fuzzing
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/

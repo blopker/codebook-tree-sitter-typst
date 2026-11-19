@@ -3,15 +3,23 @@
 #include <string.h>
 #include "unicode.h"
 
-// #define unreachable() fprintf(stderr, "unreachable src/scanner.c:%d\n", __LINE__)
-// #define assert(a, ...) \
-// 	if (!(a)) {\
-// 		fprintf(stderr, __VA_ARGS__);\
-// 		exit(EXIT_FAILURE);\
-// 	}
-
+// Internal invariants are checked only when TYPST_SCANNER_DEBUG is defined, as
+// the test and fuzz builds do. Release builds compile the checks away.
+#ifdef TYPST_SCANNER_DEBUG
+#include <stdlib.h>
+#define unreachable() \
+	(fprintf(stderr, "unreachable src/scanner.c:%d\n", __LINE__), abort())
+#define assert(a, ...) \
+	if (!(a)) {\
+		fprintf(stderr, "src/scanner.c:%d: ", __LINE__);\
+		fprintf(stderr, __VA_ARGS__);\
+		fputc('\n', stderr);\
+		abort();\
+	}
+#else
 #define unreachable() while (false);
 #define assert(a, ...) while (false);
+#endif
 
 
 enum token_type {
@@ -203,6 +211,20 @@ static size_t vec_u32_deserialize(struct vec_u32* self, const char* buffer) {
 	}
 	return read;
 }
+// Checks that a serialized vector lies within the `available` bytes at `buffer`
+// and stores the number of bytes it occupies in `size`.
+static bool vec_u32_serialized_size(const char* buffer, size_t available, size_t* size) {
+	size_t len;
+	if (available < sizeof len) {
+		return false;
+	}
+	memcpy(&len, buffer, sizeof len);
+	if (len > (available - sizeof len) / sizeof(uint32_t)) {
+		return false;
+	}
+	*size = sizeof len + len * sizeof(uint32_t);
+	return true;
+}
 //////////////////////////////////////////////////////////////////// vec<u32> //
 
 
@@ -289,8 +311,8 @@ static enum termination scanner_termination(struct scanner* self, TSLexer* lexer
 					return TERMINATION_NONE;
 
 					case CONTAINER_BARRIER:
-					// not supposed to happen
-					unreachable();
+					// The grammar never nests barriers in a valid document, but
+					// tree-sitter's error recovery can open one inside another.
 					return TERMINATION_NONE;
 
 					case CONTAINER_CONTENT:
@@ -385,7 +407,15 @@ void tree_sitter_typst_external_scanner_deserialize(
 	self->heading_level = 0;
 	self->line_start = false;
 	self->raw_level = 0;
-	if (length != 0) {
+	// A buffer whose length does not match the layout written by serialize is
+	// ignored and the scanner starts from a fresh state.
+	size_t tail = 2 + sizeof self->heading_level + sizeof self->raw_level;
+	size_t indentation_size = 0;
+	size_t containers_size = 0;
+	bool valid = vec_u32_serialized_size(buffer, length, &indentation_size)
+		&& vec_u32_serialized_size(buffer + indentation_size, length - indentation_size, &containers_size)
+		&& indentation_size + containers_size + tail == length;
+	if (valid) {
 		size_t read = 0;
 		read += vec_u32_deserialize(&self->indentation, buffer + read);
 		read += vec_u32_deserialize(&self->containers, buffer + read);
